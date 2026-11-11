@@ -1,12 +1,16 @@
-import { Modal } from "../ui";
+import { useState } from "react";
+import { Modal, ToggleSwitch } from "../ui";
 import { X, ClipboardCopy } from "lucide-react";
+import type { TreeExportOptions } from "../../types/types";
+import { loadTreeExportOptions, saveTreeExportOptions } from "../../utilities";
 
 interface CopyTreeModalProps {
   open: boolean;
   onClose: () => void;
-  onCopySkyOcean: () => void;
-  onCopyNoFrills: () => void;
-  onCopySkyHanni: () => void;
+  /** Leave out to hide the SkyOcean option (its tree format has no way to express inventory shards). */
+  onCopySkyOcean?: () => void;
+  onCopyNoFrills: (options: TreeExportOptions) => void;
+  onCopySkyHanni: (options: TreeExportOptions) => void;
   materialsOnly?: boolean;
   /** Inventory results: offer the "count shards you already own" switch. */
   inventoryMode?: boolean;
@@ -44,17 +48,17 @@ export const CopyTreeModal = ({
   };
 
   const handleCopySkyOcean = () => {
-    onCopySkyOcean();
+    onCopySkyOcean?.();
     onClose();
   };
 
   const handleCopyNoFrills = () => {
-    onCopyNoFrills();
+    onCopyNoFrills(effectiveOptions);
     onClose();
   };
 
   const handleCopySkyHanni = () => {
-    onCopySkyHanni();
+    onCopySkyHanni(effectiveOptions);
     onClose();
   };
 
@@ -124,7 +128,7 @@ export const CopyTreeModal = ({
         )}
 
         <div className="space-y-3">
-          {!materialsOnly && (
+          {!materialsOnly && onCopySkyOcean && (
             <button
               type="button"
               onClick={handleCopySkyOcean}

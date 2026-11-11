@@ -1,5 +1,5 @@
 import type { CalculationFormData } from "../schemas";
-import type { CalculationParams } from "../types/types";
+import type { CalculationParams, TreeExportOptions } from "../types/types";
 
 /**
  * The nine shards whose attribute level the player sets by hand. Drives both the
