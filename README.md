@@ -56,7 +56,7 @@ docker build -t skyshards .
 docker run -d -p 8080:80 --name skyshards --restart unless-stopped skyshards
 ```
 
-The site is then available at http://localhost:8080 or if deployed on a difrrent machine http://<ip-add-of-machine>:8080. 
+The site is then available at http://localhost:8080 or if deployed on a difrrent machine http://\<ip-add-of-machine\>:8080. 
 
 To use a different host port with Compose set `PORT` (e.g. `PORT=3000 docker compose up -d --build`).
 
