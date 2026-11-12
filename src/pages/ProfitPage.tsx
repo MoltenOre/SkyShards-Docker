@@ -594,7 +594,7 @@ export const ProfitPage = () => {
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-400">
               <span>
-                Created by{" "}
+                Profits Page Created by{" "}
                 <a href={AUTHOR_URL} target="_blank" rel="noopener noreferrer" className="text-emerald-300 hover:underline">
                   {AUTHOR_NAME}
                 </a>
@@ -607,7 +607,7 @@ export const ProfitPage = () => {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium bg-yellow-400/20 hover:bg-yellow-400/30 text-yellow-200 border border-yellow-400/30 hover:border-yellow-400/50 transition-colors duration-200"
                 >
                   <Coffee className="w-4 h-4" />
-                  Buy me a coffee
+                  Buy him a coffee
                 </a>
               )}
             </div>
