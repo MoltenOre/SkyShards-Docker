@@ -40,6 +40,8 @@ const PAGES: Array<{ path?: string; Page: LazyExoticComponent<ComponentType> }> 
   { Page: CalculatorPage },
   { path: "shards", Page: SettingsPage },
   { path: "recipes", Page: RecipePage },
+  // Deep link for in-game mods: the calculator with a target (and optionally a profile) preset.
+  { path: "recipe", Page: CalculatorPage },
   { path: "fusion-lines", Page: FusionGraphPage },
   { path: "guide", Page: GuidePage },
   { path: "about", Page: AboutPage },
@@ -56,6 +58,16 @@ const pageRoutes: RouteObject[] = PAGES.map(({ path, Page }) => {
   );
   return path ? { path, element } : { index: true, element };
 });
+
+/** /recipe/<shard>: same page as /recipe, with the target in the path. Served from recipe.html (see buildRedirects). */
+const recipeTargetRoute: RouteObject = {
+  path: "recipe/:target",
+  element: (
+    <Suspense fallback={<LoadingSpinner />}>
+      <CalculatorPage />
+    </Suspense>
+  ),
+};
 
 /** Short links that leave the site. Not in PAGES: they are not pages and have no SITE_ROUTES entry. */
 const redirectRoutes: RouteObject[] = [
@@ -74,7 +86,7 @@ const basename = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const router = createBrowserRouter(
   [
-    { path: "/", element: <RootLayout />, children: [...pageRoutes, ...redirectRoutes] },
+    { path: "/", element: <RootLayout />, children: [...pageRoutes, recipeTargetRoute, ...redirectRoutes] },
     { path: "*", element: <Navigate to="/" replace /> },
   ],
   { basename },

@@ -61,6 +61,14 @@ export const SITE_ROUTES: SiteRoute[] = [
     description: "How to use the SkyShards fusion calculator to plan your Hypixel SkyBlock shard fusions.",
     indexed: true,
   },
+  {
+    // Deep link for in-game mods (/recipe/<shard>, /recipe?target=&user=&count=); the calculator with a preset target.
+    path: "/recipe",
+    name: "Calculator",
+    title: "Shard Recipe | SkyShards",
+    description: "The fastest way to make a Hypixel SkyBlock attribute shard, calculated for your profile.",
+    indexed: false,
+  },
   { path: "/about", name: "About", title: "About | SkyShards", description: "About SkyShards, the Hypixel SkyBlock fusion calculator.", indexed: true },
   { path: "/contact", name: "Contact", title: "Contact | SkyShards", description: "How to contact the SkyShards team.", indexed: true },
   { path: "/privacy-policy", name: "Privacy Policy", title: "Privacy Policy | SkyShards", description: "The SkyShards privacy policy.", indexed: true },
@@ -74,10 +82,17 @@ export const SITE_ROUTES: SiteRoute[] = [
   },
 ];
 
-/** In-app title for the current location; unknown paths redirect to "/". */
+/**
+ * Rewrites (Cloudflare Pages 200 proxies): URLs served from another route's page while
+ * keeping their own URL, for routes with path parameters such as /recipe/<shard>.
+ */
+export const REWRITES: Array<[from: string, to: string]> = [["/recipe/*", "/recipe"]];
+
+/** In-app title for the current location; unknown paths redirect to "/". Sub-paths (/recipe/<shard>) take their parent's. */
 export function titleForPath(pathname: string): string {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-  const route = SITE_ROUTES.find((r) => r.path === path) ?? SITE_ROUTES[0];
+  const parent = `/${path.split("/")[1] ?? ""}`;
+  const route = SITE_ROUTES.find((r) => r.path === path) ?? SITE_ROUTES.find((r) => r.path === parent) ?? SITE_ROUTES[0];
   return `SkyShards · ${route.name}`;
 }
 
@@ -106,5 +121,6 @@ export function buildRedirects(): string {
   // The header/footer short link: a real 301 to the Discord invite.
   lines.push(`${DISCORD_PATH} ${DISCORD_INVITE_URL} 301`);
   for (const [from, to] of LEGACY_REDIRECTS) lines.push(`${from} ${to} 301`);
+  for (const [from, to] of REWRITES) lines.push(`${from} ${to} 200`);
   return `${lines.join("\n")}\n`;
 }

@@ -22,6 +22,7 @@ import { isFirstVisit, setSaveEnabled, saveProfileType, type ProfileType } from 
 import { hasTarget, isTargetChange } from "./calculator/calculations";
 import { useCalculation } from "./calculator/useCalculation";
 import { useInventoryState } from "./calculator/useInventoryState";
+import { useRecipeLink, type ResolvedRecipeLink } from "./calculator/useRecipeLink";
 
 /**
  * The calculator: settings form in the sidebar, results on the right.
@@ -29,6 +30,10 @@ import { useInventoryState } from "./calculator/useInventoryState";
  * Every form change reaches `handleCalculate`, which schedules a debounced run (see
  * useCalculation). Runs also restart when anything else that feeds them changes:
  * custom rates, recipe overrides, or the inventory.
+ *
+ * Also mounted at /recipe and /recipe/:target, the deep link in-game mods open for a
+ * hovered shard (see utilities/recipeLink.ts): it sets the target and can import a
+ * player's profile first.
  */
 export const CalculatorPage = () => {
   const { form, setForm } = useCalculatorState();
@@ -108,6 +113,34 @@ export const CalculatorPage = () => {
 
   const resetRecipeOverrides = () => setRecipeOverrides([]);
   const removeRecipeOverride = (shardId: string) => setRecipeOverrides((overrides) => overrides.filter((override) => override.shardId !== shardId));
+
+  // A /recipe link: import the profile (inventory, attributes, levels, ironman or not),
+  // then target the shard. Without ?count, make what is left to max its attribute.
+  useRecipeLink(({ shard, count, imported }: ResolvedRecipeLink) => {
+    let next = formRef.current;
+    let attributes = ownedAttributes;
+
+    if (imported) {
+      setInventory(imported.inventory);
+      setOwnedAttributes(imported.ownedAttributes);
+      setUseInventory(true);
+      attributes = imported.ownedAttributes;
+      next = { ...next, ...imported.levels, ironManView: imported.ironman };
+      // The profile answers the welcome modal's ironman-or-normal question.
+      if (showWelcome) {
+        saveProfileType(imported.ironman ? "ironman" : "normal");
+        setSaveEnabled(true);
+        setShowWelcome(false);
+      }
+    }
+
+    if (shard) {
+      next = { ...next, shard: shard.name, quantity: count ?? remainingToMax(shard.rarity, attributes.get(shard.id)), materialsOnly: false };
+    }
+
+    setForm(next);
+    if (hasTarget(next)) schedule(next, 100);
+  });
 
   // Only show a result computed in the mode currently selected.
   const inventoryMode = useInventory && !form.materialsOnly;

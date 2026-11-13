@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { Modal } from "../ui";
 import { X, Package, RefreshCw, User, ChevronDown, AlertTriangle, Check, Eye, EyeOff, Trash2 } from "lucide-react";
-import { hypixelService } from "../../services";
+import { buildProfileImport, hypixelService } from "../../services";
 import type { HypixelProfileResponse, ProfileData } from "../../services";
 import { useClickOutside, useShards } from "../../hooks";
 import {
@@ -15,7 +15,7 @@ import {
   sortByShardKey,
   type HypixelProfileMeta,
 } from "../../utilities";
-import { SHARD_DESCRIPTIONS, LEVELED_SHARDS, fusedCountToTierLevel, maxQuantityForRarity, type ShardLevelKey } from "../../constants";
+import { SHARD_DESCRIPTIONS, maxQuantityForRarity, type ShardLevelKey } from "../../constants";
 import type { CalculationFormData } from "../../schemas";
 import { RarityFilter, ResetFiltersButton, SearchInput } from "./shardPicker";
 import { rarityCardStyles, searchShards } from "./shardSearch";
@@ -146,6 +146,10 @@ export const InventoryManagementModal = ({
     if (open) {
       setError(null);
       setImportSuccess(false);
+      // A /recipe?user= link may have imported a profile since this modal mounted.
+      const meta = loadHypixelProfileMeta();
+      setProfileMeta(meta);
+      if (meta) setUsername((current) => current || meta.username);
     } else {
       setShardsQuery("");
       setAttrsQuery("");
@@ -203,11 +207,10 @@ export const InventoryManagementModal = ({
 
   // Replace the inventory and attributes with the profile's, and derive the leveled shards' levels.
   const importProfileData = (profile: ProfileData, playerName: string) => {
-    const levelOf = (shardId: string) => profile.attributes.find((attr) => attr.id.toUpperCase() === shardId.toUpperCase())?.level ?? 0;
-    onShardLevelsImport?.(Object.fromEntries(LEVELED_SHARDS.map(({ shardId, rarity, key }) => [key, fusedCountToTierLevel(levelOf(shardId), rarity)])));
-
-    onInventoryChange(new Map(profile.shards.filter((shard) => shard.amount > 0).map((shard) => [shard.id, shard.amount])));
-    onOwnedAttributesChange(new Map(profile.attributes.filter((attr) => attr.level > 0).map((attr) => [attr.id, attr.level])));
+    const imported = buildProfileImport(profile);
+    onShardLevelsImport?.(imported.levels);
+    onInventoryChange(imported.inventory);
+    onOwnedAttributesChange(imported.ownedAttributes);
 
     const meta: HypixelProfileMeta = { username: playerName, profileName: profile.profile.cute_name, lastImportTime: Date.now() };
     saveHypixelProfileMeta(meta);

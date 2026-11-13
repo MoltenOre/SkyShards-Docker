@@ -46,6 +46,9 @@ const EXTERNAL_LINKS: {
   },
 ];
 
+/** The /recipe deep link is the calculator, so it lights up the Calculator item. */
+const isActive = (path: string, pathname: string) => pathname === path || (path === "/" && (pathname === "/recipe" || pathname.startsWith("/recipe/")));
+
 const ITEM_BASE = "font-medium rounded-md transition-colors duration-200 flex items-center cursor-pointer";
 const DESKTOP_ITEM = `${ITEM_BASE} px-2 py-1.5 text-xs space-x-1`;
 const MOBILE_ITEM = `${ITEM_BASE} px-3 py-2 text-sm space-x-2`;
@@ -57,7 +60,7 @@ export const Navigation = () => {
   const navLinks = (itemClass: string, iconClass: string, onClick?: () => void) =>
     NAV_ITEMS.map(({ path, label, icon: Icon, color }) => {
       const { base, ring } = COLOR_CLASSES[color];
-      const ringClass = location.pathname === path ? `ring-1 ring-offset-0 ${ring}` : "";
+      const ringClass = isActive(path, location.pathname) ? `ring-1 ring-offset-0 ${ring}` : "";
       return (
         <Link key={path} to={path} onClick={onClick} className={`${itemClass} ${base} ${ringClass}`}>
           <Icon className={iconClass} />

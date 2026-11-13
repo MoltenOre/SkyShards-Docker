@@ -4,3 +4,5 @@ export { InvCalculationService } from "./invCalculationService";
 export * from "./dataService";
 export { hypixelService } from "./hypixelService";
 export type { ShardOwned, AttributeOwned, ProfileSummary, ProfileData, HypixelProfileResponse } from "./hypixelService";
+export { buildProfileImport, pickProfile } from "./profileImport";
+export type { ProfileImport } from "./profileImport";

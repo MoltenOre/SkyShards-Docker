@@ -48,12 +48,19 @@ describe("routes", () => {
     expect(titleForPath("/")).toBe("SkyShards · Calculator");
     expect(titleForPath("/recipes/")).toBe("SkyShards · Recipes");
     expect(titleForPath("/nope")).toBe("SkyShards · Calculator");
+    expect(titleForPath("/recipe/ATTRIBUTE_ACCESSORY_SIZE_SHARD")).toBe("SkyShards · Calculator");
+    expect(titleForPath("/recipes/whatever")).toBe("SkyShards · Recipes");
   });
 
   it("never redirect a live route", () => {
     const live = new Set(SITE_ROUTES.map((r) => r.path));
     for (const [from] of LEGACY_REDIRECTS) expect(live.has(from), from).toBe(false);
     expect(buildRedirects()).toContain("/smart / 301");
+  });
+
+  it("serves /recipe/<shard> from the /recipe page", () => {
+    expect(buildRedirects()).toContain("/recipe/* /recipe 200");
+    expect(SITE_ROUTES.find((r) => r.path === "/recipe")?.indexed).toBe(false);
   });
 
   it("redirects the Discord short link to the invite", () => {
