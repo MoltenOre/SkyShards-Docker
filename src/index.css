@@ -58,6 +58,11 @@ html.ads-blocked .pn-page {
   display: block;
 }
 
+/* Profits page ad row (components/profit/AdBanner.tsx): hide it when AdSense has no ad for it. */
+.profit-ad:has(ins.adsbygoogle[data-ad-status="unfilled"]) {
+  display: none;
+}
+
 /* Toast auto-dismiss progress bar (ui/Toast.tsx) */
 @keyframes toast-progress {
   from {

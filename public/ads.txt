@@ -1,3 +1,6 @@
+# AdSense (Profits page banner)
+google.com, pub-1219390617775936, DIRECT, f08c47fec0942fa0
+
 # Mediavine Ads.txt v20261016
 managerdomain=mediavine.com
 contact=sales@mediavine.com

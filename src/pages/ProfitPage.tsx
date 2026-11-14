@@ -3,6 +3,7 @@ import { Backpack, Coins, Coffee, Columns3, Hammer, Pickaxe, Repeat, Sprout, Arr
 import { Link, useNavigate } from "react-router-dom";
 import { useCalculatorState, useCustomRates } from "../hooks";
 import { Modal, ToggleSwitch, Tooltip } from "../components/ui";
+import { AdRow } from "../components/profit/AdBanner";
 import { DepthChart } from "../components/profit/DepthChart";
 import { ShardDescription } from "../components/ui/ShardDescription";
 import { SHARD_DESCRIPTIONS } from "../constants";
@@ -364,15 +365,19 @@ const DataTable = <R,>({
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={rowKey(row)} className={rowClass}>
-            {columns.map((column) => (
-              <td key={column.id} className={cellClass(column.align)}>
-                {column.render(row)}
-              </td>
-            ))}
-          </tr>
-        ))}
+        {rows.flatMap((row, index) => {
+          const tr = (
+            <tr key={rowKey(row)} className={rowClass}>
+              {columns.map((column) => (
+                <td key={column.id} className={cellClass(column.align)}>
+                  {column.render(row)}
+                </td>
+              ))}
+            </tr>
+          );
+          // The ad keeps its own key, so sorting or searching never reloads it.
+          return index === 0 ? [tr, <AdRow key="ad" colSpan={columns.length} />] : [tr];
+        })}
       </tbody>
     </table>
     {rows.length === 0 && <p className="text-center text-slate-500 py-6">{emptyText}</p>}
