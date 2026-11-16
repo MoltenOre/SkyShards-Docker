@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Calculator, Settings, Shuffle, Share2, Coins, Menu, X, ExternalLink } from "lucide-react";
 import { DiscordIcon, GitHubIcon, KofiIcon } from "../ui/BrandIcons";
 import { DISCORD_PATH } from "../../seo/routes";
+import { VisitorCounter } from "./VisitorCounter";
 
 type NavColor = "purple" | "green" | "blue" | "yellow" | "gray" | "amber" | "indigo" | "emerald";
 
@@ -83,14 +84,17 @@ export const Navigation = () => {
     <nav className="border-b border-slate-700 bg-slate-900">
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
-          <Link to="/" className="flex items-center group">
-            <div
-              className="text-2xl font-black bg-gradient-to-r from-blue-400 via-purple-400 to-emerald-400 bg-clip-text text-transparent tracking-wide group-hover:from-blue-300 group-hover:via-purple-300 group-hover:to-emerald-300 transition-all duration-300 drop-shadow-sm"
-              style={{ fontFamily: "Orbitron, monospace" }}
-            >
-              SkyShards
-            </div>
-          </Link>
+          <div className="flex items-center">
+            <Link to="/" className="flex items-center group">
+              <div
+                className="text-2xl font-black bg-gradient-to-r from-blue-400 via-purple-400 to-emerald-400 bg-clip-text text-transparent tracking-wide group-hover:from-blue-300 group-hover:via-purple-300 group-hover:to-emerald-300 transition-all duration-300 drop-shadow-sm"
+                style={{ fontFamily: "Orbitron, monospace" }}
+              >
+                SkyShards
+              </div>
+            </Link>
+            <VisitorCounter />
+          </div>
 
           <div className="hidden md:flex items-center space-x-2">
             {navLinks(DESKTOP_ITEM, "w-3 h-3")}
