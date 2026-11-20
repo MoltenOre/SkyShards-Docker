@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Coins } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Coffee, Coins, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useCalculatorState, useCustomRates } from "../hooks";
 import { ToggleSwitch } from "../components/ui";
@@ -15,6 +15,33 @@ import { loadCustomPrices, loadInventory } from "../utilities";
 
 /** Bazaar prices with the user's overrides for the same order-book side on top. */
 const withOverrides = (bazaar: Record<string, number>, overrides: Map<string, number>) => ({ ...bazaar, ...Object.fromEntries(overrides) });
+
+/** Author credit and support link shown at the top of the page. Leave SUPPORT_URL empty to hide the button. */
+const AUTHOR_NAME = "MoltenOre";
+const AUTHOR_URL = "https://github.com/MoltenOre";
+const SUPPORT_URL = "https://ko-fi.com/moltenore";
+
+/** Hypixel refreshes the Bazaar about once a minute; older prices are refetched when the tab is focused again. */
+const STALE_AFTER_MS = 60_000;
+
+/** "just now", "45s ago", "3m ago", "2h ago". */
+const formatAge = (ms: number) => {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
+};
+
+/** The current time, updated every few seconds while mounted. */
+const useNow = (intervalMs: number) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+};
 
 export const ProfitPage = () => {
   const { form } = useCalculatorState();
@@ -100,9 +127,47 @@ export const ProfitPage = () => {
     <div className="min-h-screen px-2 sm:px-4 py-4">
       <div className="max-w-[1800px] mx-auto space-y-4">
         <div className="bg-slate-800 border border-slate-600 rounded-md p-3 space-y-3">
-          <div className="flex items-center gap-2">
-            <Coins className="w-5 h-5 text-emerald-400" />
-            <h1 className="text-xl font-semibold text-white">Profits</h1>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Coins className="w-5 h-5 text-emerald-400" />
+              <h1 className="text-xl font-semibold text-white">Profits</h1>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+              <span>
+                Profits Page Created by{" "}
+                <a href={AUTHOR_URL} target="_blank" rel="noopener noreferrer" className="text-emerald-300 hover:underline">
+                  {AUTHOR_NAME}
+                </a>
+              </span>
+              {SUPPORT_URL && (
+                <a
+                  href={SUPPORT_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium bg-yellow-400/20 hover:bg-yellow-400/30 text-yellow-200 border border-yellow-400/30 hover:border-yellow-400/50 transition-colors duration-200"
+                >
+                  <Coffee className="w-4 h-4" />
+                  Buy him a coffee
+                </a>
+              )}
+              <span className="hidden sm:inline text-slate-600" aria-hidden>
+                |
+              </span>
+              {loaded && (
+                <span title={new Date(loaded.updatedAt).toLocaleString()}>
+                  Bazaar prices from <span className="text-slate-300">{formatAge(now - loaded.updatedAt)}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={refreshing}
+                className={`${segmentClass(false)} inline-flex items-center gap-1.5 disabled:opacity-60`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            </div>
           </div>
           <div className="space-y-2 text-sm text-slate-400">
             <p>
