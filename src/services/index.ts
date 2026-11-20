@@ -14,6 +14,7 @@ export {
   getInventoryRows,
   getSpread,
   countOrders,
+  worstSpread,
   type BuyMode,
   type SellMode,
   type MarketData,
@@ -25,3 +26,4 @@ export {
   type InventoryRow,
   type Spread,
 } from "./profitCalculator";
+export { getChainRows, CHAIN_BATCH_SIZE, type ChainRow, type ChainResult } from "./chainProfit";

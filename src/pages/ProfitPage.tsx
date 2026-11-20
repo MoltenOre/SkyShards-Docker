@@ -7,10 +7,13 @@ import { ActiveTable } from "../components/profit/ActiveTable";
 import { NumberSetting, Segmented } from "../components/profit/controls";
 import { OrderBookModal } from "../components/profit/OrderBookModal";
 import { loadSettings, saveSettings, type ProfitSettings, type TableId } from "../components/profit/profitSettings";
-import { farmFusionTable, farmingTable, flipTable, fusionTable, inventoryTable } from "../components/profit/tables";
+import { segmentClass } from "../components/profit/styles";
+import { chainTable, farmFusionTable, farmingTable, flipTable, fusionTable, inventoryTable } from "../components/profit/tables";
+import { TAX_PRESETS, taxMultiplierFrom, taxMultiplierSource } from "../components/profit/tax";
 import type { Loaded } from "../components/profit/types";
 import { CalculationService, DataService, buildCalculationParams, type BuyMode, type MarketSettings, type SellMode } from "../services";
 import { calculateMultipliers } from "../services/fusionMath";
+import type { ElectionData } from "../types/hypixelApiTypes";
 import { loadCustomPrices, loadInventory } from "../utilities";
 
 /** Bazaar prices with the user's overrides for the same order-book side on top. */
@@ -50,6 +53,11 @@ export const ProfitPage = () => {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bookShardId, setBookShardId] = useState<string | null>(null);
+  // Bumped to refetch the Bazaar; the effect below reloads whenever it changes.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [election, setElection] = useState<ElectionData | null>(null);
+  const now = useNow(5000);
   const { buyMode, sellMode, useOverrides } = settings;
 
   const update = (changes: Partial<ProfitSettings>) =>
@@ -58,6 +66,34 @@ export const ProfitPage = () => {
       saveSettings(next);
       return next;
     });
+
+  const refresh = useCallback(() => {
+    DataService.getInstance().refreshBazaar();
+    setRefreshing(true);
+    setReloadKey((key) => key + 1);
+  }, []);
+
+  // Coming back to the tab after a while: the prices are probably stale, so fetch new ones.
+  const updatedAt = loaded?.updatedAt;
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && updatedAt !== undefined && Date.now() - updatedAt > STALE_AFTER_MS) refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [updatedAt, refresh]);
+
+  // The mayor only changes Bazaar tax through a perk (Derpy), so a failed request just means no change.
+  useEffect(() => {
+    let cancelled = false;
+    DataService.getInstance()
+      .loadElection()
+      .then((result) => !cancelled && setElection(result))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,41 +108,55 @@ export const ProfitPage = () => {
       // Price overrides are stored per side the same way, so each side gets its own.
       const buyFromOffers = buyMode === "instant";
       const sellToOffers = sellMode === "offer";
-      const [data, bazaarBuy, bazaarSell, volumes, orderBooks] = await Promise.all([
+      const [data, sellOfferPrices, buyOrderPrices, volumes, orderBooks, updatedAt] = await Promise.all([
         CalculationService.getInstance().parseData(params),
-        dataService.loadShardCosts(buyFromOffers),
-        dataService.loadShardCosts(sellToOffers),
+        dataService.loadShardCosts(true),
+        dataService.loadShardCosts(false),
         dataService.loadShardVolumes(),
         dataService.loadShardOrderBooks(),
+        dataService.loadBazaarUpdatedAt(),
       ]);
       const noOverrides = new Map<string, number>();
-      const buyOverrides = useOverrides ? loadCustomPrices(buyFromOffers) : noOverrides;
-      const sellOverrides = useOverrides ? loadCustomPrices(sellToOffers) : noOverrides;
+      const sellOfferOverrides = useOverrides ? loadCustomPrices(true) : noOverrides;
+      const buyOrderOverrides = useOverrides ? loadCustomPrices(false) : noOverrides;
+      const sides = { sellOffer: withOverrides(sellOfferPrices, sellOfferOverrides), buyOrder: withOverrides(buyOrderPrices, buyOrderOverrides) };
+      const buyOverrides = buyFromOffers ? sellOfferOverrides : buyOrderOverrides;
+      const sellOverrides = sellToOffers ? sellOfferOverrides : buyOrderOverrides;
       if (!cancelled) {
         setLoaded({
           data,
-          buyPrices: withOverrides(bazaarBuy, buyOverrides),
-          sellPrices: withOverrides(bazaarSell, sellOverrides),
+          buyPrices: buyFromOffers ? sides.sellOffer : sides.buyOrder,
+          sellPrices: sellToOffers ? sides.sellOffer : sides.buyOrder,
           buyOverrides: new Set(buyOverrides.keys()),
           sellOverrides: new Set(sellOverrides.keys()),
+          sides,
           volumes,
           orderBooks,
           inventory: loadInventory(),
           crocodileMultiplier: calculateMultipliers(params).crocodileMultiplier,
+          crocodileLevel: params.crocodileLevel,
+          updatedAt,
         });
       }
-    })().catch((loadError: unknown) => {
-      console.error(loadError);
-      if (!cancelled) setError("Could not load shard data or Bazaar prices. Please try again later.");
-    });
+    })()
+      .catch((loadError: unknown) => {
+        console.error(loadError);
+        if (!cancelled) setError("Could not load shard data or Bazaar prices. Please try again later.");
+      })
+      .finally(() => {
+        if (!cancelled) setRefreshing(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [form, customRates, buyMode, sellMode, useOverrides]);
+  }, [form, customRates, buyMode, sellMode, useOverrides, reloadKey]);
 
+  const taxMultiplier = settings.applyMayorTax ? taxMultiplierFrom(election) : 1;
+  const mayorTaxSource = taxMultiplierSource(election);
+  const effectiveTax = Math.min(settings.taxPercent * taxMultiplier, 100);
   const marketSettings: MarketSettings = useMemo(
-    () => ({ buyMode, sellMode, taxPercent: settings.taxPercent, marketShare: settings.marketSharePercent / 100 }),
-    [buyMode, sellMode, settings.taxPercent, settings.marketSharePercent],
+    () => ({ buyMode, sellMode, taxPercent: effectiveTax, marketShare: settings.marketSharePercent / 100 }),
+    [buyMode, sellMode, effectiveTax, settings.marketSharePercent],
   );
   const tab = settings.activeTab;
   // Shared by every tab; setBookShardId is stable, so the tables only rebuild when the data does.
@@ -171,7 +221,8 @@ export const ProfitPage = () => {
           </div>
           <div className="space-y-2 text-sm text-slate-400">
             <p>
-              Find the best way to turn shards into coins: farm and sell them, fuse them, flip them on the Bazaar, or fuse the shards you farm.
+              Find the best way to turn shards into coins: farm and sell them, fuse them (one step or a whole chain), flip them on the Bazaar, or fuse the
+              shards you farm.
               <br />
               Rates use your Hunting Fortune, pets and custom rates from the{" "}
               <Link to="/" className="text-purple-300 hover:underline">
@@ -192,7 +243,7 @@ export const ProfitPage = () => {
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-300">How to use</h2>
               <ul className="mt-1 grid gap-x-6 gap-y-0.5 md:grid-cols-2 list-disc pl-5 text-xs">
-                <li>Pick a tab: Farming, Fusions, Flips, Fuse your farm or Inventory (your own shards from the Calculator).</li>
+                <li>Pick a tab: Farming, Fusions, Fusion chains, Flips, Fuse your farm or Inventory (your own shards from the Calculator).</li>
                 <li>Hover a shard to see its description and how to hunt it.</li>
                 <li>Click a shard&apos;s name to open its order book as a depth chart.</li>
                 <li>In the order book, click the name again to open the shard on the Shards page, e.g. to set your own price.</li>
@@ -250,14 +301,44 @@ export const ProfitPage = () => {
                   ["offer", "Sell offer"],
                 ]}
               />
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">Bazaar tax</span>
+                {TAX_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    title={preset.title}
+                    className={segmentClass(settings.taxPercent === preset.percent)}
+                    onClick={() => update({ taxPercent: preset.percent })}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
               <NumberSetting
-                label="Bazaar tax"
+                label="Your tax"
                 value={settings.taxPercent}
                 onChange={(value) => update({ taxPercent: Math.min(value, 100) })}
                 step={0.125}
                 suffix="%"
-                title="Taken from every sale. Hypixel's base tax is 1.25 %."
+                title="Taken from every sale (instant sells and filled sell offers); buying is tax-free. 1.25 % base, 1.125 % / 1 % with Bazaar Flipper I / II."
               />
+              {mayorTaxSource && (
+                <ToggleSwitch
+                  label={`${mayorTaxSource}'s QUAD TAXES (×4)`}
+                  checked={settings.applyMayorTax}
+                  onChange={(value) => update({ applyMayorTax: value })}
+                  size="sm"
+                  accent="emerald"
+                  labelClassName="text-xs text-amber-300"
+                  tooltip="The current mayor quadruples Bazaar tax. Tax is charged when you claim the coins, so you can also wait until the next mayor before claiming sales."
+                />
+              )}
+              <span className="text-xs text-slate-400" title="The tax every profit on this page uses">
+                Effective: <span className={taxMultiplier > 1 ? "text-amber-300" : "text-slate-200"}>{effectiveTax.toFixed(3).replace(/\.?0+$/, "")}%</span>
+              </span>
             </div>
           </div>
         </div>
@@ -272,6 +353,7 @@ export const ProfitPage = () => {
           <>
             {tab === "farming" && <ActiveTable config={farmingTable} {...tableProps} />}
             {tab === "fusions" && <ActiveTable config={fusionTable} {...tableProps} />}
+            {tab === "chains" && <ActiveTable config={chainTable} {...tableProps} />}
             {tab === "flips" && <ActiveTable config={flipTable} {...tableProps} />}
             {tab === "farmFusions" && <ActiveTable config={farmFusionTable} {...tableProps} />}
             {tab === "inventory" && <ActiveTable config={inventoryTable} {...tableProps} />}
