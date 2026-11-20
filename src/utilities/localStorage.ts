@@ -279,6 +279,49 @@ const profileTypeSlot = createStorageSlot<ProfileType>("skyshards_profile_type",
 });
 export const saveProfileType = (type: ProfileType): void => profileTypeSlot.write(type);
 
+// ─── Copy Tree dialog ───
+
+/**
+ * Merged over the defaults so an older or partial entry still loads; a field that isn't a
+ * boolean (hand-edited, or from a future build) falls back to its default.
+ */
+const treeExportOptionsSlot = createStorageSlot<TreeExportOptions>("tree_export_options", {
+  label: "export options",
+  fallback: () => ({ ...DEFAULT_TREE_EXPORT_OPTIONS }),
+  deserialize: (raw) => {
+    const parsed: unknown = JSON.parse(raw);
+    const options = { ...DEFAULT_TREE_EXPORT_OPTIONS };
+    if (!isPlainObject(parsed)) return options;
+    for (const key of Object.keys(options) as (keyof TreeExportOptions)[]) {
+      const value = parsed[key];
+      if (typeof value === "boolean") options[key] = value;
+    }
+    return options;
+  },
+});
+
+export const loadTreeExportOptions = (): TreeExportOptions => treeExportOptionsSlot.read();
+export const saveTreeExportOptions = (options: TreeExportOptions): void => treeExportOptionsSlot.write(options);
+
+// ─── Profits page ───
+
+/**
+ * The Profits page's settings, kept as the raw object: the page owns its shape and
+ * validates every field (see `parseProfitSettings`), so a stale or hand-edited entry
+ * can't break it.
+ */
+const profitSettingsSlot = createStorageSlot<Record<string, unknown> | null>("profit_page_settings", {
+  label: "profit page settings",
+  fallback: () => null,
+  deserialize: (raw) => {
+    const parsed: unknown = JSON.parse(raw);
+    return isPlainObject(parsed) ? parsed : null;
+  },
+});
+
+export const loadProfitSettings = (): Record<string, unknown> | null => profitSettingsSlot.read();
+export const saveProfitSettings = (settings: object): void => profitSettingsSlot.write({ ...settings });
+
 // ─── Housekeeping ───
 
 /**
@@ -298,7 +341,8 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "custom_prices_buy_order",
   "custom_prices_instant_buy",
   "greenhouse_modal_seen",
-  "optimizer_settings",
+  "tree_export_options",
+  "profit_page_settings",
   // Owned by the inline ad-block detector in index.html (first-paint cache), not by a slot here.
   "ss_ads_blocked",
 ]);
