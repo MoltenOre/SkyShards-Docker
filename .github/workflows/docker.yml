@@ -4,6 +4,10 @@ name: Docker Image
 # master -> :latest (also after the fusion-data sync, which pushes to master), tags v1.2.3 -> :1.2.3 / :1.2
 # Pull requests only build, to catch a broken Dockerfile early.
 
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   push:
     branches: [master]
