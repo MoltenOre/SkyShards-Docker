@@ -1,5 +1,5 @@
 import { maxQuantityForRarity } from "../constants";
-import type { InventoryRecipeTree } from "../types/types";
+import type { InventoryRecipeTree, Shard } from "../types/types";
 import type { InventoryPlanner } from "./invCalculationService";
 
 /*
@@ -11,23 +11,30 @@ import type { InventoryPlanner } from "./invCalculationService";
  *     fused away while its own attribute still needs it.
  *  2. Complete from inventory. What is left is pure surplus (shards of maxed
  *     attributes, or more than the cap needs). Attributes that surplus alone can
- *     finish, with no farming or buying, are completed first, rarity by rarity
- *     (RARITY_ORDER), cheapest (fewest fusions) first within a rarity.
+ *     finish, with no farming or buying, are completed first, rarity by rarity in the
+ *     player's chosen order, cheapest (fewest fusions) first within a rarity.
  *  3. Complete with extra materials. Then attributes the surplus gets part of the way,
  *     in the same rarity order, cheapest extra cost first. Only where the surplus saves
- *     a real share of the cost (MIN_SAVINGS_SHARE), so a token 20 shards never pull in a
- *     26-hour farm, and it stops once nothing can use the surplus left.
+ *     at least the player's minimum share of the cost, so a token 20 shards never pull
+ *     in a 26-hour farm, and it stops once nothing can use the surplus left.
+ *
+ * Chameleon has no attribute to put shards into, so it is never a target.
  *
  * Within a rarity the choice is greedy with lazy re-evaluation: a plan only gets more
  * expensive as the inventory shrinks, so a stale cost is a lower bound and only the
  * front of the queue ever needs re-planning.
  */
 
-/** Rarity order of completion. Commons go last: they are the cheapest fusion inputs, so finishing their attributes early would eat fodder. */
-export const RARITY_ORDER = ["uncommon", "rare", "epic", "legendary", "common"] as const;
+export type Rarity = Shard["rarity"];
 
-/** Share of an attribute's normal cost the surplus must save for a completion that still needs farming or buying. */
+/** Default rarity order of completion: commons first, legendaries last. */
+export const RARITY_ORDER: readonly Rarity[] = ["common", "uncommon", "rare", "epic", "legendary"];
+
+/** Default share of an attribute's normal cost the surplus must save for a completion that still needs farming or buying. */
 export const MIN_SAVINGS_SHARE = 0.25;
+
+/** Shards with no attribute to fuse into: they are never absorbed or completed. */
+export const NON_ATTRIBUTE_SHARDS: ReadonlySet<string> = new Set(["L4"]); // Chameleon
 
 /** Owned shards put straight into their own attribute. */
 export interface AbsorbStep {
@@ -58,6 +65,8 @@ export interface CompletionStep {
   baselineCost: number;
   /** Made from surplus alone (step 2), rather than with extra materials (step 3). */
   fromInventoryOnly: boolean;
+  /** Inventory left once this step is done; the tree's "remaining" counts. */
+  remainingInventory: Map<string, number>;
   tree: InventoryRecipeTree | null;
 }
 
@@ -78,6 +87,10 @@ export interface AttributeOptimization {
 }
 
 export interface OptimizeOptions {
+  /** Rarities in the order to complete them; rarities left out are skipped. Default RARITY_ORDER. */
+  rarityOrder?: readonly Rarity[];
+  /** Minimum share (0-1) of the normal cost the surplus must save in step 3. Default MIN_SAVINGS_SHARE. */
+  minSavingsShare?: number;
   /** Aborting stops at the next yield and rejects with an AbortError. */
   signal?: AbortSignal;
   /** Called with the share of planning done, 0-1. */
@@ -114,10 +127,15 @@ export async function optimizeAttributes(
   planner: InventoryPlanner,
   inventory: Map<string, number>,
   ownedAttributes: Map<string, number>,
-  { signal, onProgress }: OptimizeOptions = {},
+  { signal, onProgress, rarityOrder = RARITY_ORDER, minSavingsShare = MIN_SAVINGS_SHARE }: OptimizeOptions = {},
 ): Promise<AttributeOptimization> {
   const { data } = planner;
   const cap = (shardId: string) => maxQuantityForRarity(data.shards[shardId].rarity);
+  const hasAttribute = (shardId: string) => !NON_ATTRIBUTE_SHARDS.has(shardId);
+  const rarityRank = (shardId: string) => {
+    const index = rarityOrder.indexOf(data.shards[shardId].rarity.toLowerCase() as Rarity);
+    return index === -1 ? rarityOrder.length : index;
+  };
 
   const attributes = new Map(ownedAttributes);
   let working = new Map([...inventory].filter(([shardId, quantity]) => quantity > 0 && data.shards[shardId]));
@@ -126,6 +144,7 @@ export async function optimizeAttributes(
   // 1. Absorb owned shards into their own attributes.
   const absorbs: AbsorbStep[] = [];
   for (const [shardId, owned] of working) {
+    if (!hasAttribute(shardId)) continue;
     const fusedBefore = attributes.get(shardId) ?? 0;
     const quantity = Math.min(owned, cap(shardId) - fusedBefore);
     if (quantity <= 0) continue;
@@ -134,15 +153,15 @@ export async function optimizeAttributes(
     attributes.set(shardId, fusedAfter);
     working.set(shardId, owned - quantity);
   }
-  absorbs.sort((a, b) => Number(b.completes) - Number(a.completes) || rarityRank(data.shards[a.shardId].rarity) - rarityRank(data.shards[b.shardId].rarity));
+  absorbs.sort((a, b) => Number(b.completes) - Number(a.completes) || rarityRank(a.shardId) - rarityRank(b.shardId) || a.shardId.localeCompare(b.shardId));
   working = new Map([...working].filter(([, quantity]) => quantity > 0));
   // Attributes maxed by absorbing free up their lines' surplus.
   planner.updateOwnedAttributes(attributes);
 
-  const unfinished = Object.keys(data.shards).filter((shardId) => (attributes.get(shardId) ?? 0) < cap(shardId));
-  const tiers = RARITY_ORDER.map((rarity) => unfinished.filter((shardId) => data.shards[shardId].rarity.toLowerCase() === rarity));
+  const unfinished = Object.keys(data.shards).filter((shardId) => hasAttribute(shardId) && (attributes.get(shardId) ?? 0) < cap(shardId));
+  const tiers = rarityOrder.map((rarity) => unfinished.filter((shardId) => data.shards[shardId].rarity.toLowerCase() === rarity));
   // Every unfinished attribute is planned at least once per pass; progress counts those.
-  const totalInitialPlans = unfinished.length * 2;
+  const totalInitialPlans = Math.max(1, tiers.reduce((sum, tier) => sum + tier.length, 0) * 2);
   let plansDone = 0;
   let sinceYield = 0;
 
@@ -183,6 +202,7 @@ export async function optimizeAttributes(
         extraCost: result.totalTime,
         baselineCost: fromInventoryOnly ? result.totalTime : baselineCost(shardId, quantity),
         fromInventoryOnly,
+        remainingInventory,
         tree: result.tree,
       },
     };
@@ -196,7 +216,7 @@ export async function optimizeAttributes(
     const acceptable = ({ step }: Candidate) => {
       if (step.inventoryUsed.size === 0 || !Number.isFinite(step.extraCost)) return false;
       if (fromInventoryOnly) return step.materials.size === 0;
-      return step.baselineCost - step.extraCost >= MIN_SAVINGS_SHARE * step.baselineCost;
+      return step.baselineCost - step.extraCost >= minSavingsShare * step.baselineCost;
     };
 
     const queue: Candidate[] = [];
@@ -250,8 +270,3 @@ export async function optimizeAttributes(
     },
   };
 }
-
-const rarityRank = (rarity: string): number => {
-  const index = (RARITY_ORDER as readonly string[]).indexOf(rarity.toLowerCase());
-  return index === -1 ? RARITY_ORDER.length : index;
-};

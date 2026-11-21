@@ -20,9 +20,10 @@ import type { CalculationFormData } from "../schemas";
 import type { RecipeOverride } from "../types/types";
 import type { ShardLevelKey } from "../constants";
 import { isFirstVisit, setSaveEnabled, saveProfileType, type ProfileType } from "../utilities";
-import { hasTarget, isTargetChange, optimizeInventory } from "./calculator/calculations";
+import { hasTarget, isTargetChange } from "./calculator/calculations";
 import { useCalculation } from "./calculator/useCalculation";
 import { useInventoryState } from "./calculator/useInventoryState";
+import { useInventoryOptimizer } from "./calculator/useInventoryOptimizer";
 
 /**
  * The calculator: settings form in the sidebar, results on the right.
@@ -105,9 +106,12 @@ export const CalculatorPage = () => {
     }
   };
 
-  // The optimizer plans with whatever the calculator is set to right now.
-  const runOptimizer = (signal: AbortSignal, onProgress: (fraction: number) => void) =>
-    optimizeInventory(formRef.current, customRates, recipeOverrides, { inventory, disabledShards, ownedAttributes }, signal, onProgress);
+  // The plan lives here, not in the modal, so closing it (e.g. to open a step in the calculator) keeps it.
+  const optimizer = useInventoryOptimizer({ form, customRates, recipeOverrides, inventory, disabledShards, ownedAttributes });
+  const openOptimizer = () => {
+    optimizer.ensurePlan();
+    setShowOptimizer(true);
+  };
 
   // A step of the optimizer's plan, opened as an inventory calculation.
   const handleOpenFromOptimizer = async (shardKey: string, quantity: number) => {
@@ -158,7 +162,7 @@ export const CalculatorPage = () => {
                 inventorySize={inventory.size}
                 attributeCount={ownedAttributes.size}
                 onManage={() => setShowInventoryModal(true)}
-                onOptimize={() => setShowOptimizer(true)}
+                onOptimize={openOptimizer}
               />
               <CalculatorForm
                 onSubmit={handleCalculate}
@@ -227,7 +231,11 @@ export const CalculatorPage = () => {
       <InventoryOptimizerModal
         open={showOptimizer}
         onClose={() => setShowOptimizer(false)}
-        run={runOptimizer}
+        state={optimizer.state}
+        settings={optimizer.settings}
+        onSettingsChange={optimizer.setSettings}
+        isStale={optimizer.isStale}
+        onRecalculate={optimizer.recalculate}
         onOpenInCalculator={(shardKey, quantity) => {
           handleOpenFromOptimizer(shardKey, quantity).catch((error) => console.error("Failed to open shard from optimizer:", error));
         }}

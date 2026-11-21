@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { maxQuantityForRarity } from "../constants";
 import { makeParams } from "../test/fixtures";
 import type { Data } from "../types/types";
-import { MIN_SAVINGS_SHARE, RARITY_ORDER, optimizeAttributes, type AttributeOptimization } from "./attributeOptimizer";
+import {
+  MIN_SAVINGS_SHARE,
+  NON_ATTRIBUTE_SHARDS,
+  RARITY_ORDER,
+  optimizeAttributes,
+  type AttributeOptimization,
+  type OptimizeOptions,
+  type Rarity,
+} from "./attributeOptimizer";
 import { CalculationService } from "./calculationService";
 import { InvCalculationService } from "./invCalculationService";
 
@@ -12,7 +20,7 @@ const invSvc = InvCalculationService.getInstance();
 
 const loadData = () => CalculationService.getInstance().parseData(PARAMS);
 const cap = (data: Data, shardId: string) => maxQuantityForRarity(data.shards[shardId].rarity);
-const rank = (data: Data, shardId: string) => (RARITY_ORDER as readonly string[]).indexOf(data.shards[shardId].rarity);
+const rank = (data: Data, shardId: string, order: readonly Rarity[]) => order.indexOf(data.shards[shardId].rarity as Rarity);
 
 /** Every shard maxed except `unmaxed`, which start at `fused`. */
 const attributesExcept = (data: Data, unmaxed: Record<string, number>) =>
@@ -29,11 +37,32 @@ const fusedTarget = async (data: Data) => {
   throw new Error("no fused uncommon in the data");
 };
 
-const optimize = async (inventory: Map<string, number>, attributes: Map<string, number>) =>
-  optimizeAttributes(await invSvc.createPlanner(PARAMS, [], attributes), inventory, attributes);
+const optimize = async (inventory: Map<string, number>, attributes: Map<string, number>, options: OptimizeOptions = {}) =>
+  optimizeAttributes(await invSvc.createPlanner(PARAMS, [], attributes), inventory, attributes, options);
+
+/** Deterministic pseudo-random profile: a third of the attributes unfinished, a spread of owned shards. */
+const randomProfile = (data: Data, seed: number) => {
+  const ids = Object.keys(data.shards).sort();
+  const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const attributes = new Map(ids.map((shardId) => [shardId, random() < 0.33 ? Math.floor(random() * cap(data, shardId)) : cap(data, shardId)]));
+  const inventory = new Map(ids.filter(() => random() < 0.5).map((shardId) => [shardId, 1 + Math.floor(random() * 150)]));
+  return { attributes, inventory };
+};
 
 /** The invariants every plan must keep, whatever the inventory. */
-const expectConsistent = (data: Data, inventory: Map<string, number>, attributes: Map<string, number>, plan: AttributeOptimization) => {
+const expectConsistent = (
+  data: Data,
+  inventory: Map<string, number>,
+  attributes: Map<string, number>,
+  plan: AttributeOptimization,
+  { rarityOrder = RARITY_ORDER, minSavingsShare = MIN_SAVINGS_SHARE }: OptimizeOptions = {},
+) => {
+  // Chameleon has no attribute.
+  expect(
+    [...plan.absorbs, ...plan.completions].some((step) => step.shardId === "L4"),
+    "Chameleon planned",
+  ).toBe(false);
+
   // Shards are accounted for: what is left plus what was absorbed or used is what was owned.
   const spent = new Map<string, number>();
   const add = (shardId: string, quantity: number) => spent.set(shardId, (spent.get(shardId) ?? 0) + quantity);
@@ -52,6 +81,8 @@ const expectConsistent = (data: Data, inventory: Map<string, number>, attributes
   // No waste: a completion only ever consumes shards whose own attribute is already maxed.
   const maxed = new Set([...attributes].filter(([shardId, fused]) => data.shards[shardId] && fused >= cap(data, shardId)).map(([shardId]) => shardId));
   plan.absorbs.filter((step) => step.completes).forEach((step) => maxed.add(step.shardId));
+  // Shards without an attribute have nothing to save them for.
+  NON_ATTRIBUTE_SHARDS.forEach((shardId) => maxed.add(shardId));
   for (const step of plan.completions) {
     for (const shardId of step.inventoryUsed.keys()) expect(maxed.has(shardId), `${step.shardId} uses unmaxed ${shardId}`).toBe(true);
     expect(step.fusedBefore + step.quantity, step.shardId).toBe(cap(data, step.shardId));
@@ -64,9 +95,12 @@ const expectConsistent = (data: Data, inventory: Map<string, number>, attributes
   const mixed = plan.completions.filter((step) => !step.fromInventoryOnly);
   expect(plan.completions, "from-inventory completions come first").toEqual([...free, ...mixed]);
   free.forEach((step) => expect(step.materials.size, step.shardId).toBe(0));
-  mixed.forEach((step) => expect(step.baselineCost - step.extraCost, step.shardId).toBeGreaterThanOrEqual(MIN_SAVINGS_SHARE * step.baselineCost));
+  mixed.forEach((step) => expect(step.baselineCost - step.extraCost, step.shardId).toBeGreaterThanOrEqual(minSavingsShare * step.baselineCost));
+  [...free, ...mixed].forEach((step) => expect(rank(data, step.shardId, rarityOrder), `${step.shardId} rarity not chosen`).toBeGreaterThanOrEqual(0));
   for (const run of [free, mixed]) {
-    for (let i = 1; i < run.length; i++) expect(rank(data, run[i].shardId), run[i].shardId).toBeGreaterThanOrEqual(rank(data, run[i - 1].shardId));
+    for (let i = 1; i < run.length; i++) {
+      expect(rank(data, run[i].shardId, rarityOrder), run[i].shardId).toBeGreaterThanOrEqual(rank(data, run[i - 1].shardId, rarityOrder));
+    }
   }
 };
 
@@ -116,12 +150,7 @@ describe("optimizeAttributes", () => {
 
   it("keeps its invariants on a large mixed inventory", async () => {
     const data = await loadData();
-    const ids = Object.keys(data.shards).sort();
-    // Deterministic pseudo-random profile: a third of the attributes unfinished, a spread of owned shards.
-    let seed = 7;
-    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    const attributes = new Map(ids.map((shardId) => [shardId, random() < 0.33 ? Math.floor(random() * cap(data, shardId)) : cap(data, shardId)]));
-    const inventory = new Map(ids.filter(() => random() < 0.5).map((shardId) => [shardId, 1 + Math.floor(random() * 150)]));
+    const { attributes, inventory } = randomProfile(data, 7);
 
     const started = Date.now();
     const plan = await optimize(inventory, attributes);
@@ -132,6 +161,28 @@ describe("optimizeAttributes", () => {
 
     expect(plan.totals.attributesMaxed).toBeGreaterThan(0);
     expectConsistent(data, inventory, attributes, plan);
+  });
+
+  it("follows the chosen rarity order and minimum saving", async () => {
+    const data = await loadData();
+    const { attributes, inventory } = randomProfile(data, 11);
+    const options: OptimizeOptions = { rarityOrder: ["legendary", "epic", "rare"], minSavingsShare: 0.6 };
+
+    const plan = await optimize(inventory, attributes, options);
+
+    expect(plan.completions.length).toBeGreaterThan(0);
+    expectConsistent(data, inventory, attributes, plan, options);
+  });
+
+  it("never plans Chameleon, which has no attribute", async () => {
+    const data = await loadData();
+    const attributes = attributesExcept(data, { L4: 0 });
+
+    const plan = await optimize(new Map([["L4", 30]]), attributes);
+
+    expect(plan.absorbs).toEqual([]);
+    expect(plan.completions).toEqual([]);
+    expect(plan.remainingInventory.get("L4")).toBe(30);
   });
 
   it("stops when aborted", async () => {

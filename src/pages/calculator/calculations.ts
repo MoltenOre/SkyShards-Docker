@@ -1,6 +1,7 @@
 import type { CalculationFormData } from "../../schemas";
 import type { CalculationParams, CalculationResult, Data, InventoryCalculationResult, RecipeOverride } from "../../types/types";
 import { CalculationService, DataService, InvCalculationService, buildCalculationParams, optimizeAttributes, type AttributeOptimization } from "../../services";
+import type { OptimizerSettings } from "../../utilities";
 import { calculateMultipleShardsParallel, calculateOptimalPathWithWorker, type WorkerProgress } from "../../services/workerCalculationService";
 
 /**
@@ -188,6 +189,7 @@ export const optimizeInventory = async (
   customRates: CustomRates,
   recipeOverrides: RecipeOverride[],
   { inventory, disabledShards, ownedAttributes }: InventoryInputs,
+  settings: OptimizerSettings,
   signal: AbortSignal,
   onProgress: (fraction: number) => void,
 ): Promise<InventoryOptimizationOutcome> => {
@@ -195,6 +197,11 @@ export const optimizeInventory = async (
   signal.throwIfAborted();
   const planner = await InvCalculationService.getInstance().createPlanner(params, recipeOverrides, ownedAttributes);
   const usableInventory = new Map([...inventory].filter(([id]) => !disabledShards.has(id)));
-  const plan = await optimizeAttributes(planner, usableInventory, ownedAttributes, { signal, onProgress });
+  const plan = await optimizeAttributes(planner, usableInventory, ownedAttributes, {
+    signal,
+    onProgress,
+    rarityOrder: settings.rarityOrder,
+    minSavingsShare: settings.minSavingsPercent / 100,
+  });
   return { plan, data: planner.data, ironManView: formData.ironManView };
 };
