@@ -1,6 +1,6 @@
 import type { CalculationFormData } from "../../schemas";
 import type { CalculationParams, CalculationResult, Data, InventoryCalculationResult, RecipeOverride } from "../../types/types";
-import { CalculationService, DataService, InvCalculationService, buildCalculationParams } from "../../services";
+import { CalculationService, DataService, InvCalculationService, buildCalculationParams, optimizeAttributes, type AttributeOptimization } from "../../services";
 import { calculateMultipleShardsParallel, calculateOptimalPathWithWorker, type WorkerProgress } from "../../services/workerCalculationService";
 
 /**
@@ -173,4 +173,28 @@ export const calculateInventory = async (
   const data = await CalculationService.getInstance().parseData(params);
 
   return { mode: "inventory", result, data, params, targetShardName: formData.shard, targetShardKey: shardKey };
+};
+
+export interface InventoryOptimizationOutcome {
+  plan: AttributeOptimization;
+  data: Data;
+  /** Costs are hours in ironman mode, coins otherwise. */
+  ironManView: boolean;
+}
+
+/** "Optimize inventory": plan the attributes the inventory can max, cheapest first (see services/attributeOptimizer). */
+export const optimizeInventory = async (
+  formData: CalculationFormData,
+  customRates: CustomRates,
+  recipeOverrides: RecipeOverride[],
+  { inventory, disabledShards, ownedAttributes }: InventoryInputs,
+  signal: AbortSignal,
+  onProgress: (fraction: number) => void,
+): Promise<InventoryOptimizationOutcome> => {
+  const params = await buildCalculationParams(formData, customRates);
+  signal.throwIfAborted();
+  const planner = await InvCalculationService.getInstance().createPlanner(params, recipeOverrides, ownedAttributes);
+  const usableInventory = new Map([...inventory].filter(([id]) => !disabledShards.has(id)));
+  const plan = await optimizeAttributes(planner, usableInventory, ownedAttributes, { signal, onProgress });
+  return { plan, data: planner.data, ironManView: formData.ironManView };
 };

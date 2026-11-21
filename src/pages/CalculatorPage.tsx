@@ -7,6 +7,7 @@ import {
   WelcomeProfileModal,
   InventoryManagementModal,
   ActiveAlternativesModal,
+  InventoryOptimizerModal,
   InventoryPanel,
   CalculationProgress,
   CalculatorEmptyState,
@@ -19,7 +20,7 @@ import type { CalculationFormData } from "../schemas";
 import type { RecipeOverride } from "../types/types";
 import type { ShardLevelKey } from "../constants";
 import { isFirstVisit, setSaveEnabled, saveProfileType, type ProfileType } from "../utilities";
-import { hasTarget, isTargetChange } from "./calculator/calculations";
+import { hasTarget, isTargetChange, optimizeInventory } from "./calculator/calculations";
 import { useCalculation } from "./calculator/useCalculation";
 import { useInventoryState } from "./calculator/useInventoryState";
 
@@ -41,6 +42,7 @@ export const CalculatorPage = () => {
   const [showWelcome, setShowWelcome] = useState(isFirstVisit);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [activeAlternativesOpen, setActiveAlternativesOpen] = useState(false);
+  const [showOptimizer, setShowOptimizer] = useState(false);
   /** Multi-shard mode: the selected shard whose own tree is shown. */
   const [materialTreeShardKey, setMaterialTreeShardKey] = useState("");
   const inventoryTree = useTreeExpansion();
@@ -103,6 +105,21 @@ export const CalculatorPage = () => {
     }
   };
 
+  // The optimizer plans with whatever the calculator is set to right now.
+  const runOptimizer = (signal: AbortSignal, onProgress: (fraction: number) => void) =>
+    optimizeInventory(formRef.current, customRates, recipeOverrides, { inventory, disabledShards, ownedAttributes }, signal, onProgress);
+
+  // A step of the optimizer's plan, opened as an inventory calculation.
+  const handleOpenFromOptimizer = async (shardKey: string, quantity: number) => {
+    const shards = await DataService.getInstance().loadShards();
+    const shard = shards.find((s) => s.id === shardKey);
+    if (!shard) return;
+    const updatedForm = { ...formRef.current, shard: shard.name, quantity, materialsOnly: false };
+    setUseInventory(true);
+    setForm(updatedForm);
+    schedule(updatedForm, 100);
+  };
+
   // No explicit recalculation: the import also replaces the inventory, which triggers one.
   const handleShardLevelsImport = (levels: Partial<Pick<CalculationFormData, ShardLevelKey>>) => setForm({ ...form, ...levels });
 
@@ -137,7 +154,12 @@ export const CalculatorPage = () => {
             </div>
 
             <div className={`${sidebarOpen ? "block" : "hidden xl:block"} space-y-3`}>
-              <InventoryPanel inventorySize={inventory.size} attributeCount={ownedAttributes.size} onManage={() => setShowInventoryModal(true)} />
+              <InventoryPanel
+                inventorySize={inventory.size}
+                attributeCount={ownedAttributes.size}
+                onManage={() => setShowInventoryModal(true)}
+                onOptimize={() => setShowOptimizer(true)}
+              />
               <CalculatorForm
                 onSubmit={handleCalculate}
                 ownedAttributes={ownedAttributes}
@@ -200,6 +222,15 @@ export const CalculatorPage = () => {
         onDisabledShardsChange={setDisabledShards}
         onShardClick={handleShardClickFromInventory}
         onShardLevelsImport={handleShardLevelsImport}
+      />
+
+      <InventoryOptimizerModal
+        open={showOptimizer}
+        onClose={() => setShowOptimizer(false)}
+        run={runOptimizer}
+        onOpenInCalculator={(shardKey, quantity) => {
+          handleOpenFromOptimizer(shardKey, quantity).catch((error) => console.error("Failed to open shard from optimizer:", error));
+        }}
       />
 
       {/* Lives here, not in the results, so it stays open while the tree recalculates. */}
