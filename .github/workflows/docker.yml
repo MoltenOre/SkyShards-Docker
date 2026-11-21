@@ -64,6 +64,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
+          package: skyshards-docker
           keep-n-tagged: 2
           exclude-tags: "*.*"
           delete-untagged: true
