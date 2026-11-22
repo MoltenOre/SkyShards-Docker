@@ -367,16 +367,6 @@ export const pruneUnknownStorageKeys = (): void => {
   }
 };
 
-// Copy Tree dialog choices. Merged over the defaults so an older or partial entry still loads.
-const treeExportOptionsSlot = createStorageSlot<TreeExportOptions>("tree_export_options", {
-  label: "export options",
-  fallback: () => ({ ...DEFAULT_TREE_EXPORT_OPTIONS }),
-  deserialize: (raw) => ({ ...DEFAULT_TREE_EXPORT_OPTIONS, ...JSON.parse(raw) }),
-});
-
-export const loadTreeExportOptions = (): TreeExportOptions => treeExportOptionsSlot.read();
-export const saveTreeExportOptions = (options: TreeExportOptions): void => treeExportOptionsSlot.write(options);
-
 // ─── Inventory optimizer ───
 
 type Rarity = Shard["rarity"];
